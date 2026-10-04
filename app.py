@@ -61,7 +61,7 @@ if st.session_state.docs_loaded:
 # ---------------------------------------------------------------------------
 
 st.divider()
-topic = st.text_input("What topic do you want to be quizzed on?")
+topic = st.text_input("What topic do you want to be quizzed on? (separate multiple topics with commas)")
 
 generate_clicked = st.button("Generate quiz", disabled=not st.session_state.docs_loaded)
 
@@ -70,13 +70,26 @@ if generate_clicked:
         st.error("Enter a topic first.")
     else:
         with st.spinner("Retrieving relevant material and generating quiz..."):
-            hits = st.session_state.index.search(topic, top_k=4)
+            # Split on commas so each topic gets its own search - otherwise one
+            # topic's embedding can dominate and the other gets starved out.
+            sub_topics = [t.strip() for t in topic.split(",") if t.strip()]
+
+            seen_ids = set()
+            hits = []
+            for sub_topic in sub_topics:
+                for chunk, score in st.session_state.index.search(sub_topic, top_k=4):
+                    if chunk.chunk_id not in seen_ids:
+                        seen_ids.add(chunk.chunk_id)
+                        hits.append((chunk, score))
+
             if not hits:
                 st.warning("No relevant material found - try a different topic.")
             else:
-                st.session_state.quiz = generate_quiz(topic, hits, num_questions=3)
+                # Ask for more questions when covering multiple topics, so each
+                # one actually shows up in the quiz instead of getting crowded out.
+                num_questions = min(3 * max(1, len(sub_topics)), 6)
+                st.session_state.quiz = generate_quiz(topic, hits, num_questions=num_questions)
                 st.session_state.answers = {}
-
 # ---------------------------------------------------------------------------
 # Step 3: Display quiz, grade on submit
 # ---------------------------------------------------------------------------
